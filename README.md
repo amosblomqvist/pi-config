@@ -1,6 +1,6 @@
 # pi-config
 
-A small library of my personal [pi](https://github.com/badlogic/pi) skills and extensions.
+A small library of my personal [pi](https://github.com/badlogic/pi-mono) skills and extensions.
 
 This is **not** meant to be installed as one big package. Browse the repo and copy the pieces you want into your own Pi config.
 
