@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { getMarkdownTheme, parseFrontmatter, truncateHead, withFileMutationQueue, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "@mariozechner/pi-coding-agent";
 import { Container, Markdown, Spacer, Text, visibleWidth } from "@mariozechner/pi-tui";
@@ -64,7 +65,7 @@ interface ExtensionConfig {
 	maxConcurrency?: number;
 }
 
-const EXT_DIR = path.dirname(new URL(import.meta.url).pathname);
+const EXT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const AGENTS_DIR = path.join(EXT_DIR, "agents");
 const TOOLS_DIR = path.join(EXT_DIR, "tools");
 const CONFIG_PATH = path.join(EXT_DIR, "config.json");
@@ -83,7 +84,7 @@ function loadConfig(): ExtensionConfig {
 const BUILTIN_TOOLS = new Set(["read", "write", "edit", "bash", "grep", "find", "ls"]);
 
 // Custom tools that require loading an extension into the subagent process
-const EXT_BASE = path.join(process.env.HOME || "~", ".pi", "agent", "extensions");
+const EXT_BASE = path.join(os.homedir(), ".pi", "agent", "extensions");
 const CUSTOM_TOOL_EXTENSIONS: Record<string, string> = {
 	web_search: path.join(EXT_BASE, "web-search", "index.ts"),
 	web_fetch: path.join(EXT_BASE, "web-fetch", "index.ts"),
@@ -254,8 +255,8 @@ async function buildPiArgs(
 	if (builtinTools.length > 0) {
 		args.push("--tools", builtinTools.join(","));
 	} else {
-		// No builtin tools needed — disable defaults so only extension tools are available
-		args.push("--no-tools");
+		// No builtin tools needed — disable builtins so only extension tools are available
+		args.push("--no-builtin-tools");
 	}
 
 	for (const extPath of extensionPaths) {
