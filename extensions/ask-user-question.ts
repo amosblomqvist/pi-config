@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
 	Editor,
 	type EditorTheme,
@@ -46,7 +46,7 @@ type AskAnswer = TextAnswer | OptionAnswer | OtherAnswer;
 type AskUserQuestionStatus = "answered" | "cancelled" | "unavailable";
 type AskUserQuestionMode = "text" | "single-select" | "multi-select";
 
-interface AskUserQuestionResultDetails {
+export interface AskUserQuestionResultDetails {
 	status: AskUserQuestionStatus;
 	question: string;
 	context?: string;
@@ -54,6 +54,23 @@ interface AskUserQuestionResultDetails {
 	answers: AskAnswer[];
 	message?: string;
 }
+
+/**
+ * Request shape for the programmatic integration seam (`askUserQuestionCore`).
+ * Mirrors the tool's parameter schema so callers can reuse the same fields.
+ */
+export interface AskUserQuestionRequest {
+	question: string;
+	details?: string;
+	options?: Array<{ label: string; value?: string; description?: string }>;
+	multiSelect?: boolean;
+}
+
+/** Structured result returned by `askUserQuestionCore`. */
+export type AskUserQuestionResult = {
+	content: Array<{ type: "text"; text: string }>;
+	details: AskUserQuestionResultDetails;
+};
 
 const OptionSchema = Type.Object({
 	label: Type.String({
@@ -565,7 +582,76 @@ function withUILock<T>(fn: () => Promise<T>): Promise<T> {
 	return sharedUiLock.withLock(fn);
 }
 
+/**
+ * Programmatic integration seam for ask-user-question.
+ *
+ * Other Pi extensions can call this directly (via the `globalThis.__piAskUserQuestion`
+ * registration or by importing the export) to ask the user a structured question
+ * without going through the LLM tool-call path. The function preserves all existing
+ * behaviour: free-text, single-select, multi-select/Other, cancellation, headless
+ * unavailability, and shared popup serialization via the UI lock.
+ *
+ * @param ctx     - ExtensionContext from an event handler, command, or tool execution.
+ * @param request - Question, optional details, options, and multiSelect flag.
+ * @param signal  - Optional AbortSignal; an already-aborted signal yields a cancelled result.
+ * @returns Structured result with `content` (text for the model) and `details`.
+ */
+export async function askUserQuestionCore(
+	ctx: ExtensionContext,
+	request: AskUserQuestionRequest,
+	signal?: AbortSignal,
+): Promise<AskUserQuestionResult> {
+	const options = normalizeOptions(request.options);
+	const context = request.details?.trim() || undefined;
+	const mode: AskUserQuestionMode = options.length === 0 ? "text" : request.multiSelect ? "multi-select" : "single-select";
+
+	if (signal?.aborted) {
+		return cancelledResult(request.question, mode, context);
+	}
+
+	if (!ctx.hasUI) {
+		return unavailableResult(request.question, mode, "ask_user_question requires interactive mode UI", context);
+	}
+
+	return withUILock(async () => {
+		if (mode === "text") {
+			const editorTitle = context ? `${request.question}\n\n${context}` : request.question;
+			const answer = await ctx.ui.editor(editorTitle);
+			if (answer === undefined) {
+				return cancelledResult(request.question, mode, context);
+			}
+			return buildResult(request.question, context, mode, [
+				{ type: "text", label: answer.trim(), value: answer.trim() },
+			]);
+		}
+
+		if (mode === "single-select") {
+			const answer = await askSingleChoice(ctx, request.question, context, options);
+			if (!answer) {
+				return cancelledResult(request.question, mode, context);
+			}
+			return buildResult(request.question, context, mode, [answer]);
+		}
+
+		const answers = await askMultiChoice(ctx, request.question, context, options);
+		if (!answers) {
+			return cancelledResult(request.question, mode, context);
+		}
+		return buildResult(request.question, context, mode, answers);
+	});
+}
+
+// Integration seam: register the core function on globalThis so other extensions
+// can call ask-user-question without importing this module (Pi loads extensions
+// as isolated jiti modules, so direct cross-extension imports are unreliable).
+const ASK_USER_QUESTION_FN_KEY = "__piAskUserQuestion";
+
 export default function askUserQuestion(pi: ExtensionAPI) {
+	// Register the programmatic seam on first load.
+	const g = globalThis as any;
+	if (!g[ASK_USER_QUESTION_FN_KEY]) {
+		g[ASK_USER_QUESTION_FN_KEY] = askUserQuestionCore;
+	}
 	pi.registerTool({
 		name: "ask_user_question",
 		label: "ask_user_question",
@@ -585,44 +671,7 @@ export default function askUserQuestion(pi: ExtensionAPI) {
 		parameters: AskUserQuestionParams,
 
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const options = normalizeOptions(params.options);
-			const context = params.details?.trim() || undefined;
-			const mode: AskUserQuestionMode = options.length === 0 ? "text" : params.multiSelect ? "multi-select" : "single-select";
-
-			if (signal?.aborted) {
-				return cancelledResult(params.question, mode, context);
-			}
-
-			if (!ctx.hasUI) {
-				return unavailableResult(params.question, mode, "ask_user_question requires interactive mode UI", context);
-			}
-
-			return withUILock(async () => {
-				if (mode === "text") {
-					const editorTitle = context ? `${params.question}\n\n${context}` : params.question;
-					const answer = await ctx.ui.editor(editorTitle);
-					if (answer === undefined) {
-						return cancelledResult(params.question, mode, context);
-					}
-					return buildResult(params.question, context, mode, [
-						{ type: "text", label: answer.trim(), value: answer.trim() },
-					]);
-				}
-
-				if (mode === "single-select") {
-					const answer = await askSingleChoice(ctx, params.question, context, options);
-					if (!answer) {
-						return cancelledResult(params.question, mode, context);
-					}
-					return buildResult(params.question, context, mode, [answer]);
-				}
-
-				const answers = await askMultiChoice(ctx, params.question, context, options);
-				if (!answers) {
-					return cancelledResult(params.question, mode, context);
-				}
-				return buildResult(params.question, context, mode, answers);
-			});
+			return askUserQuestionCore(ctx, params, signal);
 		},
 
 		renderCall(args, theme) {
