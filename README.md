@@ -56,7 +56,7 @@ Avoid cloning this repo directly into `~/.pi/agent` unless it is a fresh setup. 
 
 ### Extensions
 
-- `ask-user-question.ts` — the agent asks you a question through a UI popup; popups from different extensions serialize via a shared UI lock. Also exports `askUserQuestionCore(ctx, request, signal?)` and registers it on `globalThis.__piAskUserQuestion`, so other extensions can ask a structured question programmatically without going through the LLM tool-call path. Run `node extensions/ask-user-question.test.mjs` to validate the integration path
+- `ask-user-question.ts` — asks through a UI popup and serializes popups through the shared UI lock. Its programmatic API exports `askUserQuestionCore`, `AskUserQuestionRequest`, `AskUserQuestionResult`, and `AskUserQuestionResultDetails`; while loaded, it also exposes the core function as `globalThis.__piAskUserQuestion`
 - `bash-guard/` — hooks that catch dangerous bash commands before they run, with an on/off toggle
 - `browser/` — Playwright-driven headless Chromium the agent can drive (navigate, eval JS, inspect network/console, click, screenshot); off by default, enable with `/browser on`
 - `custom-header.ts` — the big capital Π header

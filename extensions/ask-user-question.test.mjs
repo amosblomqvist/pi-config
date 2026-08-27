@@ -78,12 +78,14 @@ function makeMockCtx({ hasUI, editor, custom }) {
 
 function makeMockPi() {
 	const handlers = new Map();
+	let tool;
 	return {
 		api: {
 			on: (event, handler) => handlers.set(event, handler),
-			registerTool() {},
+			registerTool: (definition) => { tool = definition; },
 		},
 		handlers,
+		get tool() { return tool; },
 	};
 }
 
@@ -200,6 +202,61 @@ await test("multi-select cancelled (done(null))", async () => {
 	});
 	assert.equal(r.details.status, "cancelled");
 	assert.equal(r.details.mode, "multi-select");
+});
+
+// All three executable integration paths expose the same behavior.
+await test("export, global seam, and tool execute return the same structured result", async () => {
+	const pi = makeMockPi();
+	mod.default(pi.api);
+	const request = { question: "Integration seam?", details: "Consumer-visible context" };
+	const makeCtx = () => makeMockCtx({ hasUI: true, editor: async () => "  seam answer  " });
+
+	const direct = await mod.askUserQuestionCore(makeCtx(), request);
+	const globalResult = await globalThis.__piAskUserQuestion(makeCtx(), request);
+	const toolResult = await pi.tool.execute("call-1", request, undefined, undefined, makeCtx());
+
+	assert.deepEqual(globalResult, direct);
+	assert.deepEqual(toolResult, direct);
+	console.log(`    consumer response: ${JSON.stringify(direct)}`);
+	await pi.handlers.get("session_shutdown")();
+});
+
+// The extracted core keeps the shared popup lock used by tool execution.
+await test("programmatic and tool calls remain serialized by the shared UI lock", async () => {
+	const pi = makeMockPi();
+	mod.default(pi.api);
+	const events = [];
+	let releaseFirst;
+	let markFirstStarted;
+	const firstStarted = new Promise((resolve) => { markFirstStarted = resolve; });
+	const holdFirst = new Promise((resolve) => { releaseFirst = resolve; });
+	const firstCtx = makeMockCtx({
+		hasUI: true,
+		editor: async () => {
+			events.push("programmatic:start");
+			markFirstStarted();
+			await holdFirst;
+			events.push("programmatic:end");
+			return "first";
+		},
+	});
+	const secondCtx = makeMockCtx({
+		hasUI: true,
+		editor: async () => {
+			events.push("tool:start");
+			return "second";
+		},
+	});
+
+	const first = globalThis.__piAskUserQuestion(firstCtx, { question: "First?" });
+	await firstStarted;
+	const second = pi.tool.execute("call-2", { question: "Second?" }, undefined, undefined, secondCtx);
+	await Promise.resolve();
+	assert.deepEqual(events, ["programmatic:start"]);
+	releaseFirst();
+	await Promise.all([first, second]);
+	assert.deepEqual(events, ["programmatic:start", "programmatic:end", "tool:start"]);
+	await pi.handlers.get("session_shutdown")();
 });
 
 // globalThis registration
