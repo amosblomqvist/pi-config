@@ -76,6 +76,17 @@ function makeMockCtx({ hasUI, editor, custom }) {
 	return { hasUI, ui: { editor, custom } };
 }
 
+function makeMockPi() {
+	const handlers = new Map();
+	return {
+		api: {
+			on: (event, handler) => handlers.set(event, handler),
+			registerTool() {},
+		},
+		handlers,
+	};
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -192,24 +203,30 @@ await test("multi-select cancelled (done(null))", async () => {
 });
 
 // globalThis registration
-await test("globalThis.__piAskUserQuestion registered after default export call", () => {
+await test("globalThis.__piAskUserQuestion registered after default export call", async () => {
 	const g = globalThis;
-	// Clean slate
+	const pi = makeMockPi();
 	delete g.__piAskUserQuestion;
 	assert.equal(g.__piAskUserQuestion, undefined);
-	// Call the default export with a minimal mock ExtensionAPI
-	mod.default({ registerTool: () => {} });
+	mod.default(pi.api);
 	assert.equal(typeof g.__piAskUserQuestion, "function");
 	assert.equal(g.__piAskUserQuestion, mod.askUserQuestionCore);
+	await pi.handlers.get("session_shutdown")();
+	assert.equal(g.__piAskUserQuestion, undefined);
 });
 
 // Hot-reload registration
-await test("globalThis registration replaces a stale implementation", () => {
+await test("globalThis registration replaces a stale implementation", async () => {
 	const stale = () => {};
+	const replacement = () => {};
+	const pi = makeMockPi();
 	globalThis.__piAskUserQuestion = stale;
-	mod.default({ registerTool: () => {} });
+	mod.default(pi.api);
 	assert.notEqual(globalThis.__piAskUserQuestion, stale);
 	assert.equal(globalThis.__piAskUserQuestion, mod.askUserQuestionCore);
+	globalThis.__piAskUserQuestion = replacement;
+	await pi.handlers.get("session_shutdown")();
+	assert.equal(globalThis.__piAskUserQuestion, replacement);
 });
 
 console.log(`\nAll ${passed} checks passed.`);

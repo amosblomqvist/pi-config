@@ -640,6 +640,11 @@ const ASK_USER_QUESTION_FN_KEY = "__piAskUserQuestion";
 export default function askUserQuestion(pi: ExtensionAPI) {
 	const g = globalThis as any;
 	g[ASK_USER_QUESTION_FN_KEY] = askUserQuestionCore;
+	pi.on("session_shutdown", () => {
+		if (g[ASK_USER_QUESTION_FN_KEY] === askUserQuestionCore) {
+			delete g[ASK_USER_QUESTION_FN_KEY];
+		}
+	});
 	pi.registerTool({
 		name: "ask_user_question",
 		label: "ask_user_question",
