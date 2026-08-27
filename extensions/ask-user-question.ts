@@ -8,7 +8,7 @@ import {
 	truncateToWidth,
 	wrapTextWithAnsi,
 } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { Type, type Static } from "@sinclair/typebox";
 
 interface AskOption {
 	label: string;
@@ -55,17 +55,6 @@ export interface AskUserQuestionResultDetails {
 	message?: string;
 }
 
-/**
- * Request shape for the programmatic integration seam (`askUserQuestionCore`).
- * Mirrors the tool's parameter schema so callers can reuse the same fields.
- */
-export interface AskUserQuestionRequest {
-	question: string;
-	details?: string;
-	options?: Array<{ label: string; value?: string; description?: string }>;
-	multiSelect?: boolean;
-}
-
 /** Structured result returned by `askUserQuestionCore`. */
 export type AskUserQuestionResult = {
 	content: Array<{ type: "text"; text: string }>;
@@ -106,6 +95,8 @@ const AskUserQuestionParams = Type.Object({
 		}),
 	),
 });
+
+export type AskUserQuestionRequest = Static<typeof AskUserQuestionParams>;
 
 function normalizeOptions(options: Array<{ label: string; value?: string; description?: string }> | undefined): AskOption[] {
 	return (options || [])
@@ -647,11 +638,8 @@ export async function askUserQuestionCore(
 const ASK_USER_QUESTION_FN_KEY = "__piAskUserQuestion";
 
 export default function askUserQuestion(pi: ExtensionAPI) {
-	// Register the programmatic seam on first load.
 	const g = globalThis as any;
-	if (!g[ASK_USER_QUESTION_FN_KEY]) {
-		g[ASK_USER_QUESTION_FN_KEY] = askUserQuestionCore;
-	}
+	g[ASK_USER_QUESTION_FN_KEY] = askUserQuestionCore;
 	pi.registerTool({
 		name: "ask_user_question",
 		label: "ask_user_question",

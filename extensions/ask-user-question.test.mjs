@@ -80,26 +80,21 @@ function makeMockCtx({ hasUI, editor, custom }) {
 // Tests
 // ---------------------------------------------------------------------------
 let passed = 0;
-function test(name, fn) {
+async function test(name, fn) {
+	await fn();
 	passed++;
-	fn();
 	console.log(`  ✓ ${name}`);
 }
 
 console.log("ask-user-question integration validation\n");
 
 // Exports exist
-test("exports askUserQuestionCore function", () => {
+await test("exports askUserQuestionCore function", () => {
 	assert.equal(typeof mod.askUserQuestionCore, "function");
 });
 
-test("exports AskUserQuestionResultDetails via details field", () => {
-	// Structural check — the function returns objects with a `details` field.
-	// We verify the shape in the mode tests below.
-});
-
 // Unavailable (headless)
-test("unavailable result when ctx.hasUI is false", async () => {
+await test("unavailable result when ctx.hasUI is false", async () => {
 	const ctx = makeMockCtx({ hasUI: false });
 	const r = await mod.askUserQuestionCore(ctx, { question: "Headless?" });
 	assert.equal(r.details.status, "unavailable");
@@ -109,7 +104,7 @@ test("unavailable result when ctx.hasUI is false", async () => {
 });
 
 // Aborted signal
-test("cancelled result when signal is already aborted", async () => {
+await test("cancelled result when signal is already aborted", async () => {
 	const ac = new AbortController();
 	ac.abort();
 	const ctx = makeMockCtx({ hasUI: true, editor: async () => "x", custom: makeMockCustom(null) });
@@ -118,7 +113,7 @@ test("cancelled result when signal is already aborted", async () => {
 });
 
 // Text mode — answered
-test("text mode answered", async () => {
+await test("text mode answered", async () => {
 	const ctx = makeMockCtx({ hasUI: true, editor: async () => "  hello world  " });
 	const r = await mod.askUserQuestionCore(ctx, { question: "Name?", details: "ctx" });
 	assert.equal(r.details.status, "answered");
@@ -132,7 +127,7 @@ test("text mode answered", async () => {
 });
 
 // Text mode — cancelled
-test("text mode cancelled (editor returns undefined)", async () => {
+await test("text mode cancelled (editor returns undefined)", async () => {
 	const ctx = makeMockCtx({ hasUI: true, editor: async () => undefined });
 	const r = await mod.askUserQuestionCore(ctx, { question: "Name?" });
 	assert.equal(r.details.status, "cancelled");
@@ -140,7 +135,7 @@ test("text mode cancelled (editor returns undefined)", async () => {
 });
 
 // Single-select — answered
-test("single-select answered", async () => {
+await test("single-select answered", async () => {
 	const answer = { type: "option", label: "Option A", value: "a", index: 1 };
 	const ctx = makeMockCtx({ hasUI: true, custom: makeMockCustom(answer) });
 	const r = await mod.askUserQuestionCore(ctx, {
@@ -155,7 +150,7 @@ test("single-select answered", async () => {
 });
 
 // Single-select — cancelled
-test("single-select cancelled (done(null))", async () => {
+await test("single-select cancelled (done(null))", async () => {
 	const ctx = makeMockCtx({ hasUI: true, custom: makeMockCustom(null) });
 	const r = await mod.askUserQuestionCore(ctx, {
 		question: "Pick one",
@@ -166,7 +161,7 @@ test("single-select cancelled (done(null))", async () => {
 });
 
 // Multi-select — answered
-test("multi-select answered", async () => {
+await test("multi-select answered", async () => {
 	const answers = [
 		{ type: "option", label: "A", value: "a", index: 1 },
 		{ type: "other", label: "custom", value: "custom" },
@@ -185,7 +180,7 @@ test("multi-select answered", async () => {
 });
 
 // Multi-select — cancelled
-test("multi-select cancelled (done(null))", async () => {
+await test("multi-select cancelled (done(null))", async () => {
 	const ctx = makeMockCtx({ hasUI: true, custom: makeMockCustom(null) });
 	const r = await mod.askUserQuestionCore(ctx, {
 		question: "Pick many",
@@ -197,7 +192,7 @@ test("multi-select cancelled (done(null))", async () => {
 });
 
 // globalThis registration
-test("globalThis.__piAskUserQuestion registered after default export call", () => {
+await test("globalThis.__piAskUserQuestion registered after default export call", () => {
 	const g = globalThis;
 	// Clean slate
 	delete g.__piAskUserQuestion;
@@ -208,11 +203,13 @@ test("globalThis.__piAskUserQuestion registered after default export call", () =
 	assert.equal(g.__piAskUserQuestion, mod.askUserQuestionCore);
 });
 
-// Idempotent registration
-test("globalThis registration is idempotent", () => {
-	const fnBefore = globalThis.__piAskUserQuestion;
+// Hot-reload registration
+await test("globalThis registration replaces a stale implementation", () => {
+	const stale = () => {};
+	globalThis.__piAskUserQuestion = stale;
 	mod.default({ registerTool: () => {} });
-	assert.equal(globalThis.__piAskUserQuestion, fnBefore);
+	assert.notEqual(globalThis.__piAskUserQuestion, stale);
+	assert.equal(globalThis.__piAskUserQuestion, mod.askUserQuestionCore);
 });
 
 console.log(`\nAll ${passed} checks passed.`);
