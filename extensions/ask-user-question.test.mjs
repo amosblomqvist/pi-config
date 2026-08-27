@@ -25,7 +25,7 @@ const piCodingAgentEntry = path.join(piRoot, "dist", "index.js");
 
 // Dynamically import jiti from the pi-coding-agent's bundled node_modules.
 const jitiStaticPath = pathToFileURL(
-    path.join(piRoot, "node_modules", "jiti", "lib", "jiti-static.mjs"),
+	path.join(piRoot, "node_modules", "jiti", "lib", "jiti-static.mjs"),
 ).href;
 const { createJiti } = await import(jitiStaticPath);
 
